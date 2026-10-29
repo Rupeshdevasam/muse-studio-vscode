@@ -1,0 +1,242 @@
+{
+  "name": "muse-studio-unofficial",
+  "displayName": "Muse Studio for VS Code (Unofficial)",
+  "description": "Chat with the Muse Code agent in VS Code: Allow/Reject approvals, @-file mentions, images, editor context, review and undo of every change, model and permission pickers. Community project, not affiliated with Meta.",
+  "version": "0.3.0",
+  "publisher": "rupeshdevasam",
+  "author": {
+    "name": "Rupesh Devasam"
+  },
+  "license": "MIT",
+  "preview": true,
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#2a1446",
+    "theme": "dark"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rupeshdevasam/muse-studio-vscode.git"
+  },
+  "bugs": {
+    "url": "https://github.com/rupeshdevasam/muse-studio-vscode/issues"
+  },
+  "homepage": "https://github.com/rupeshdevasam/muse-studio-vscode#readme",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "AI",
+    "Chat"
+  ],
+  "keywords": [
+    "muse",
+    "muse code",
+    "muse spark",
+    "agent",
+    "ai"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "musePanel",
+          "title": "Muse",
+          "icon": "media/muse.svg"
+        }
+      ]
+    },
+    "views": {
+      "musePanel": [
+        {
+          "type": "webview",
+          "id": "muse.chat",
+          "name": "Chat"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "muse.newChat",
+        "title": "New Chat",
+        "category": "Muse",
+        "icon": "$(add)"
+      },
+      {
+        "command": "muse.history",
+        "title": "Chat History",
+        "category": "Muse",
+        "icon": "$(history)"
+      },
+      {
+        "command": "muse.stop",
+        "title": "Stop Current Run",
+        "category": "Muse",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "muse.addSelection",
+        "title": "Add Selection to Muse Chat",
+        "category": "Muse"
+      },
+      {
+        "command": "muse.showLog",
+        "title": "Show Log",
+        "category": "Muse"
+      },
+      {
+        "command": "muse.checkSetup",
+        "title": "Check Setup",
+        "category": "Muse"
+      },
+      {
+        "command": "muse.focus",
+        "title": "Open Chat",
+        "category": "Muse"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "muse.newChat",
+          "when": "view == muse.chat",
+          "group": "navigation@1"
+        },
+        {
+          "command": "muse.history",
+          "when": "view == muse.chat",
+          "group": "navigation@2"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "muse.addSelection",
+          "when": "editorHasSelection",
+          "group": "muse@1"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Muse",
+      "properties": {
+        "muse.path": {
+          "type": "string",
+          "default": "muse",
+          "description": "Path to the muse CLI. Use an absolute path if VS Code can't find it on PATH."
+        },
+        "muse.model": {
+          "type": "string",
+          "default": "",
+          "description": "Model for new chats (for example muse-wonder-1.0). Leave empty for Muse's default. You can also switch models in the panel."
+        },
+        "muse.reasoningEffort": {
+          "type": "string",
+          "default": "",
+          "enum": [
+            "",
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "description": "Default reasoning effort. Leave empty for the model's default. You can also change it in the panel."
+        },
+        "muse.provider": {
+          "type": "string",
+          "default": "",
+          "enum": [
+            "",
+            "meta",
+            "echo"
+          ],
+          "enumDescriptions": [
+            "Your Muse settings (usually meta)",
+            "Meta models (needs sign-in)",
+            "Echo provider: no model calls, free, useful for testing the panel"
+          ],
+          "description": "Provider (passed as --provider)."
+        },
+        "muse.preset": {
+          "type": "string",
+          "default": "",
+          "description": "Agent preset (passed to muse serve as --preset). Leave empty for the default."
+        },
+        "muse.extraArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Extra arguments added when starting `muse serve`."
+        },
+        "muse.permissionProfile": {
+          "type": "string",
+          "default": ":ask-me",
+          "enum": [
+            ":ask-me",
+            ":auto-review",
+            ":read-only",
+            ":unrestricted"
+          ],
+          "enumDescriptions": [
+            "Ask me: edits inside the workspace are allowed; you approve protected writes, new network targets and other restricted actions (recommended)",
+            "Auto-review: same access, but Muse's AI reviewer approves eligible actions and only asks you when unsure",
+            "Read only: Muse can only read files",
+            "Unrestricted: no sandbox and no approval prompts"
+          ],
+          "description": "What Muse may do without asking, for new chats. You can also change it in the panel."
+        },
+        "muse.sendEditorContext": {
+          "type": "boolean",
+          "default": true,
+          "description": "Send the open file's name (and any selected code) with each message. You can drop it for one message with the \u00d7 on the chip above the message box."
+        },
+        "muse.trackChanges": {
+          "type": "boolean",
+          "default": true,
+          "description": "In git repositories, snapshot the folder before Muse works so you can review and undo everything it changed. Snapshots use a temporary index and never touch your staging area, branches or stash."
+        }
+      }
+    },
+    "keybindings": [
+      {
+        "command": "muse.focus",
+        "key": "ctrl+alt+m",
+        "mac": "cmd+alt+m"
+      },
+      {
+        "command": "muse.addSelection",
+        "key": "ctrl+alt+l",
+        "mac": "cmd+alt+l",
+        "when": "editorTextFocus && editorHasSelection"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "node esbuild.mjs --tests && node --test out/test/",
+    "package": "vsce package",
+    "vscode:prepublish": "node esbuild.mjs --production",
+    "publish:vscode": "vsce publish",
+    "publish:ovsx": "ovsx publish"
+  },
+  "dependencies": {
+    "markdown-it": "14.1.0"
+  },
+  "devDependencies": {
+    "@types/markdown-it": "14.1.2",
+    "@types/node": "20.17.10",
+    "@types/vscode": "1.90.0",
+    "@vscode/vsce": "3.2.1",
+    "esbuild": "0.24.2",
+    "typescript": "5.7.2"
+  }
+}
