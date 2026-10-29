@@ -39,6 +39,9 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('muse.history', () => provider.showHistory()),
     vscode.commands.registerCommand('muse.stop', () => provider.stop()),
     vscode.commands.registerCommand('muse.showLog', () => log.show()),
+    vscode.commands.registerCommand('muse.openSettings', () =>
+      vscode.commands.executeCommand('workbench.action.openSettings', '@ext:rupeshdevasam.muse-studio'),
+    ),
     vscode.commands.registerCommand('muse.addSelection', () => {
       const editor = vscode.window.activeTextEditor;
       if (!editor || editor.selection.isEmpty) return;

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0
+
+- **New look:** one rounded message box with the controls inside it, compact pickers for model, effort and permissions, and a round send button that becomes stop while Muse works.
+- **Welcome screen** with starter prompts.
+- **Code blocks** get syntax highlighting, a language label and a Copy button.
+- **Tool cards** show an icon for the kind of tool (terminal, file, edit, search, web…) and a status mark.
+- A "Thinking…" indicator at the end of the chat shows what Muse is doing, including when it's waiting for your approval or answer.
+- The panel title now reads **Muse Studio**, and the ⋯ menu has Settings, Check Setup and Show Log.
+
 ## 0.3.0
 
 - **@-mentions:** type `@` (or click @) to pick a file or folder. Mentioned files are attached to the message (up to 10 files, 200 KB each); folders send their listing.

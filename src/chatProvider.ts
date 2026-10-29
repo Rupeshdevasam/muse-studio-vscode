@@ -877,28 +877,29 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 </head>
 <body>
 <div id="app">
-  <div id="status" hidden></div>
   <div id="setup" hidden></div>
   <div id="messages" role="log" aria-live="polite"></div>
   <div id="todos" hidden></div>
   <form id="composer">
     <div id="mentions" role="listbox" aria-label="Files" hidden></div>
-    <div id="attachments">
-      <span id="editor-chip" class="chip" hidden></span>
-      <span id="images"></span>
-    </div>
-    <textarea id="input" rows="1" placeholder="Ask Muse to do something… (Enter to send, Shift+Enter for a new line)" aria-label="Message Muse"></textarea>
-    <input id="file-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden>
-    <div class="composer-bar">
-      <button type="button" id="attach" class="icon-button" title="Attach images (or paste / drop them)" aria-label="Attach images">📎</button>
-      <button type="button" id="mention" class="icon-button" title="Mention a file (@)" aria-label="Mention a file">@</button>
-      <select id="model" title="Model" aria-label="Model"></select>
-      <select id="effort" title="Reasoning effort" aria-label="Reasoning effort"></select>
-      <select id="mode" title="What Muse may do without asking" aria-label="Permissions"></select>
-      <span class="spacer"></span>
-      <span id="meter" class="muted"></span>
-      <button type="submit" id="send" title="Send (Enter)">Send</button>
-      <button type="button" id="stop" class="danger" title="Stop Muse" hidden>Stop</button>
+    <div class="input-box">
+      <div id="attachments">
+        <span id="editor-chip" class="chip" hidden></span>
+        <span id="images"></span>
+      </div>
+      <textarea id="input" rows="1" placeholder="Ask Muse… (@ for files)" aria-label="Message Muse"></textarea>
+      <input id="file-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden>
+      <div class="input-toolbar">
+        <button type="button" id="attach" class="icon-button" title="Attach images (or paste / drop them)" aria-label="Attach images"></button>
+        <button type="button" id="mention" class="icon-button" title="Mention a file (@)" aria-label="Mention a file"></button>
+        <span class="pill"><select id="model" title="Model" aria-label="Model"></select></span>
+        <span class="pill"><select id="effort" title="Reasoning effort" aria-label="Reasoning effort"></select></span>
+        <span class="pill"><select id="mode" title="What Muse may do without asking" aria-label="Permissions"></select></span>
+        <span class="spacer"></span>
+        <span id="meter" class="muted"></span>
+        <button type="submit" id="send" class="round-button" title="Send (Enter)" aria-label="Send"></button>
+        <button type="button" id="stop" class="round-button stop" title="Stop (Esc)" aria-label="Stop" hidden></button>
+      </div>
     </div>
   </form>
 </div>

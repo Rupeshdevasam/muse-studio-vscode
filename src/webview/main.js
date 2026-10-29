@@ -1,8 +1,23 @@
 // Chat panel UI. Receives UiEvents (see src/view.ts) from the extension and renders them.
 import MarkdownIt from 'markdown-it';
+import hljs from 'highlight.js/lib/common';
+import { icons, logo, toolIcon } from './icons';
 
 const vscode = acquireVsCodeApi();
-const md = new MarkdownIt({ html: false, linkify: true, breaks: false });
+const md = new MarkdownIt({
+  html: false,
+  linkify: true,
+  breaks: false,
+  highlight(code, lang) {
+    // Highlighting very large blocks on every streamed chunk would make typing feel slow.
+    if (code.length > 20_000) return '';
+    try {
+      if (lang && hljs.getLanguage(lang)) return hljs.highlight(code, { language: lang, ignoreIllegals: true }).value;
+      if (!lang && code.length > 40) return hljs.highlightAuto(code).value;
+    } catch {}
+    return '';
+  },
+});
 
 const $ = (id) => document.getElementById(id);
 const $messages = $('messages');
@@ -10,7 +25,6 @@ const $form = $('composer');
 const $input = $('input');
 const $send = $('send');
 const $stop = $('stop');
-const $status = $('status');
 const $setup = $('setup');
 const $todos = $('todos');
 const $model = $('model');
@@ -23,6 +37,11 @@ const $images = $('images');
 const $fileInput = $('file-input');
 const $attach = $('attach');
 const $mentionBtn = $('mention');
+
+$attach.innerHTML = icons.attach;
+$mentionBtn.innerHTML = icons.at;
+$send.innerHTML = icons.send;
+$stop.innerHTML = icons.stop;
 
 const MAX_IMAGES = 5;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -79,12 +98,21 @@ function scrollToBottom(force) {
 function renderMarkdown(block) {
   block.el.innerHTML = md.render(block.raw || '');
   for (const pre of block.el.querySelectorAll('pre')) {
-    const btn = button('Copy', 'copy', () => {
-      navigator.clipboard.writeText((pre.querySelector('code') ?? pre).textContent.trimEnd());
-      btn.textContent = 'Copied';
-      setTimeout(() => (btn.textContent = 'Copy'), 1200);
+    const code = pre.querySelector('code');
+    const lang = (code?.className.match(/language-([\w+#-]+)/) || [])[1] || '';
+    const wrap = el('div', 'code-block');
+    const head = el('div', 'code-head');
+    head.append(el('span', 'code-lang', lang || 'text'));
+    const btn = button('', 'code-copy', () => {
+      navigator.clipboard.writeText((code ?? pre).textContent.trimEnd());
+      btn.innerHTML = icons.check + '<span>Copied</span>';
+      setTimeout(() => (btn.innerHTML = icons.copy + '<span>Copy</span>'), 1200);
     });
-    pre.appendChild(btn);
+    btn.innerHTML = icons.copy + '<span>Copy</span>';
+    btn.title = 'Copy code';
+    head.append(btn);
+    pre.replaceWith(wrap);
+    wrap.append(head, pre);
   }
 }
 
@@ -103,6 +131,7 @@ function queueRender(block) {
 function append(node, force) {
   $messages.querySelector('.empty')?.remove();
   $messages.append(node);
+  if (busy) $messages.append($working); // keep the "thinking" row at the end
   scrollToBottom(force);
 }
 
@@ -128,13 +157,37 @@ function compact(n) {
   return String(n);
 }
 
+const STARTERS = [
+  { label: 'Explain this project', text: 'Give me a quick tour of this project: what it does, how it is organized, and where to start reading.' },
+  { label: 'Review the open file', text: 'Review the file I have open for bugs, edge cases and readability problems. Suggest fixes, but do not change anything yet.' },
+  { label: 'Write tests for…', text: 'Write tests for @', mention: true },
+  { label: 'Summarize my changes', text: 'Summarize my uncommitted changes (git diff) and point out anything that looks risky.' },
+];
+
 function showEmptyState() {
   $messages.replaceChildren();
   const empty = el('div', 'empty');
+  const mark = el('div', 'logo');
+  mark.innerHTML = logo;
+  const starters = el('div', 'starters');
+  for (const st of STARTERS) {
+    starters.append(
+      button(st.label, 'starter', () => {
+        $input.value = st.text;
+        $input.focus();
+        $input.setSelectionRange(st.text.length, st.text.length);
+        autosize();
+        updateSendButton();
+        if (st.mention) updateMention();
+      }),
+    );
+  }
   empty.append(
-    el('h2', '', 'Muse'),
-    el('p', 'muted', 'Ask Muse to read, write or run code in this workspace.'),
-    el('p', 'muted small', 'Tip: select code in the editor and choose "Add Selection to Muse Chat" from the right-click menu.'),
+    mark,
+    el('h2', '', 'Muse Studio'),
+    el('p', 'muted', 'Ask Muse to read, write, run and fix code in this workspace.'),
+    starters,
+    el('p', 'muted small tips', '@ to mention files  ·  paste screenshots  ·  Esc to stop'),
   );
   $messages.append(empty);
 }
@@ -239,24 +292,28 @@ function renderCard(it) {
     const card = el('div', 'tool running');
     const det = el('details');
     const summary = el('summary');
-    const icon = el('span', 'icon');
+    const kindIcon = el('span', 'tool-icon');
+    kindIcon.innerHTML = it.kind === 'subagent' ? icons.agent : it.kind === 'webSearch' ? icons.globe : toolIcon(it.tool);
     const name = el('span', 'tool-name');
     const detail = el('span', 'tool-detail muted');
     const counts = el('span', 'counts');
-    summary.append(icon, name, detail, counts);
+    const status = el('span', 'status-icon');
+    summary.append(kindIcon, name, detail, counts, status);
     const output = el('pre', 'tool-output');
     output.hidden = true;
     det.append(summary, output);
     const actions = el('div', 'tool-actions');
     actions.hidden = true;
     card.append(det, actions);
-    b = { kind: it.kind, el: card, det, name, detail, counts, actions, output, revision: -1 };
+    b = { kind: it.kind, el: card, det, name, detail, counts, status, actions, output, revision: -1 };
     items.set(it.itemId, b);
     append(card);
   }
   if (it.revision < b.revision) return;
   b.revision = it.revision;
   setState(b.el, it.status);
+  if (it.kind === 'toolCall') setWorkingText(it.status === 'inProgress' ? `${toolTitle(it)}…` : 'Thinking…');
+  b.status.innerHTML = it.status === 'inProgress' ? '<span class="spinner"></span>' : it.status === 'completed' ? icons.check : it.status === 'failed' || it.status === 'timedOut' ? icons.x : icons.minus;
 
   const a = parseArgs(it.args);
   if (it.kind === 'toolCall') {
@@ -567,20 +624,37 @@ function renderMeter() {
   $meter.classList.toggle('warn', context.pressure === 'warning' || usage.windowPct >= 80);
 }
 
-function setStatus(text) {
-  $status.textContent = text;
-  $status.hidden = !text;
-}
+const $working = el('div', 'working');
+const $dots = el('span', 'dots');
+$dots.append(el('i'), el('i'), el('i'));
+$working.append($dots, el('span', 'shimmer', 'Thinking…'));
 
 function setBusy(on) {
   busy = on;
-  $stop.hidden = !on;
-  setStatus(on ? 'Muse is working…' : '');
+  if (on) {
+    $messages.querySelector('.empty')?.remove();
+    $messages.append($working);
+    scrollToBottom(false);
+  } else $working.remove();
+  updateSendButton();
   $input.placeholder = !ready
     ? 'Finish setting up Muse above to start chatting'
     : on
-      ? 'Muse is working. Messages you send now are queued.'
-      : 'Ask Muse to do something… (Enter to send, Shift+Enter for a new line)';
+      ? 'Type to queue a message…'
+      : 'Ask Muse… (@ for files)';
+}
+
+function setWorkingText(text) {
+  $working.lastChild.textContent = text;
+}
+
+/** While busy with an empty box, the round button stops Muse; with text, it queues a message. */
+function updateSendButton() {
+  const hasContent = !!$input.value.trim() || pendingImages.length > 0;
+  $stop.hidden = !(busy && !hasContent);
+  $send.hidden = !$stop.hidden;
+  $send.disabled = !ready || !hasContent;
+  $send.title = busy ? 'Queue message (Enter)' : 'Send (Enter)';
 }
 
 // ---------- event dispatch ----------
@@ -609,15 +683,19 @@ function apply(ev) {
       break;
     case 'approval':
       renderApproval(ev.approval);
+      setWorkingText('Waiting for your approval…');
       break;
     case 'approval-resolved':
       renderApprovalResolved(ev);
+      setWorkingText('Thinking…');
       break;
     case 'question':
       renderQuestion(ev.question);
+      setWorkingText('Waiting for your answer…');
       break;
     case 'question-settled':
       settleQuestion(ev);
+      setWorkingText('Thinking…');
       break;
     case 'turn':
       if (ev.phase === 'completed') {
@@ -688,12 +766,14 @@ function renderControls(c) {
   fillSelect($model, models, c.modelId || models[0][0]);
   $model.disabled = c.models.length < 2;
 
-  const effortOpts = [['', `Effort: ${c.defaultEffort ? c.defaultEffort + ' (default)' : 'default'}`]].concat(c.efforts.map((e) => [e, `Effort: ${e}`]));
+  const effortOpts = [['', `${c.defaultEffort ? c.defaultEffort[0].toUpperCase() + c.defaultEffort.slice(1) : 'Default'} effort`, 'The model\'s default reasoning effort']].concat(
+    c.efforts.map((e) => [e, `${e[0].toUpperCase()}${e.slice(1)} effort`]),
+  );
   fillSelect($effort, effortOpts, c.effort || '');
 
   fillSelect(
     $mode,
-    c.profiles.map((p) => [p.id, `🛡 ${p.label}`, PROFILE_HINTS[p.id] || p.description]),
+    c.profiles.map((p) => [p.id, p.label, PROFILE_HINTS[p.id] || p.description]),
     c.profile,
   );
   $mode.title = PROFILE_HINTS[c.profile] || c.profiles.find((p) => p.id === c.profile)?.description || '';
@@ -709,7 +789,6 @@ $mode.addEventListener('change', () => vscode.postMessage({ type: 'setProfile', 
 function renderSetup(status) {
   ready = status.state === 'ready';
   $input.disabled = !ready;
-  $send.disabled = !ready;
   setBusy(busy);
   if (ready) {
     $setup.hidden = true;
@@ -754,6 +833,7 @@ function autosize() {
 $input.addEventListener('input', () => {
   autosize();
   updateMention();
+  updateSendButton();
 });
 
 $input.addEventListener('keydown', (e) => {
@@ -797,6 +877,7 @@ $form.addEventListener('submit', (e) => {
   renderEditorChip();
   closeMentions();
   autosize();
+  updateSendButton();
 });
 
 // ---------- @-mentions ----------
@@ -897,6 +978,7 @@ function renderEditorChip() {
 // ---------- images ----------
 
 function renderPendingImages() {
+  queueMicrotask(updateSendButton);
   $images.replaceChildren(
     ...pendingImages.map((im, i) => {
       const chip = el('span', 'chip image-chip');
@@ -1044,6 +1126,7 @@ window.addEventListener('message', (e) => {
     case 'insert':
       $input.value += ($input.value && !$input.value.endsWith('\n') ? '\n' : '') + msg.text;
       autosize();
+      updateSendButton();
       $input.focus();
       break;
   }
