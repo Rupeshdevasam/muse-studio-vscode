@@ -1,10 +1,10 @@
-# Muse Studio for VS Code (Unofficial)
+# Muse Studio for VS Code
 
-A Claude Code-style side panel for the Muse Code agent: chat, approvals, @-mentions, images, and review/undo of every change.
+> **Community project, not affiliated with Meta.** This extension is not made, endorsed or supported by Meta. "Muse" and "Muse Code" are Meta's names for their product. This extension only runs the `muse` CLI you have installed.
+
+A full-featured side panel for the Muse Code agent: chat, approvals, @-mentions, images, and review/undo of every change.
 
 ![Muse Studio: chat with an approval card](media/screenshots/approval.png)
-
-> **Community project.** This extension is not made, endorsed or supported by Meta. "Muse" and "Muse Code" are Meta's names for their product. This extension only runs the `muse` CLI you have installed.
 
 ## Features
 

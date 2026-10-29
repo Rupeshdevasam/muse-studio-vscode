@@ -1,7 +1,7 @@
 {
-  "name": "muse-studio-unofficial",
-  "displayName": "Muse Studio for VS Code (Unofficial)",
-  "description": "Chat with the Muse Code agent in VS Code: Allow/Reject approvals, @-file mentions, images, editor context, review and undo of every change, model and permission pickers. Community project, not affiliated with Meta.",
+  "name": "muse-studio",
+  "displayName": "Muse Studio for VS Code",
+  "description": "Community-built, not affiliated with or endorsed by Meta. A side panel for the Muse Code agent: Allow/Reject approvals, @-file mentions, images, editor context, review and undo of every change, model and permission pickers.",
   "version": "0.3.0",
   "publisher": "rupeshdevasam",
   "author": {
