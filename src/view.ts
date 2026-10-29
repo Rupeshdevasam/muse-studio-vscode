@@ -293,3 +293,22 @@ export class ViewReducer {
     return merged;
   }
 }
+
+/** Turns a resumed session's stored items (e.g. a chat started in the Muse CLI) into events to show. */
+export function historyToEvents(items: any[]): UiEvent[] {
+  const out: UiEvent[] = [];
+  for (const it of items ?? []) {
+    if (it?.kind === 'userMessage') {
+      const text = String(it.displayText ?? it.text ?? '');
+      if (text) out.push({ type: 'user', text, commandId: it.commandId });
+      continue;
+    }
+    const view = toItemView(it);
+    if (view) out.push({ type: 'item', item: view });
+  }
+  return out;
+}
+
+/** Version fingerprints of the MSP schema this extension was tested against. */
+export const TESTED_SCHEMA_FINGERPRINTS = new Set(['sha256:c94c3d1f2f51e6424074b9ec43eac3eedcf532d3dcd77351ec1383a87d3049c6']);
+export const TESTED_MUSE_VERSION = '1.4.14';

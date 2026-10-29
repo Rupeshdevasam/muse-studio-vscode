@@ -9,3 +9,4 @@ tsconfig.json
 *.vsix
 media/icon.svg
 media/screenshots/**
+docs/**

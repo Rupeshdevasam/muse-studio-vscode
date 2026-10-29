@@ -21,6 +21,10 @@ A full-featured side panel for the Muse Code agent: chat, approvals, @-mentions,
 - **Task list, context meter and quota meter** (5-hour and weekly allowance).
 - **Stop** interrupts Muse cleanly (or press Esc). Messages sent while Muse is working are queued.
 - **Chats resume:** pick an earlier chat from the history button and Muse continues where it left off.
+- **Slash commands:** `/new`, `/compact`, `/model`, `/effort`, `/permissions`, `/history`, `/stop`.
+- **Editor tab:** open the chat full-width next to your code.
+- **Status bar and notifications:** see when Muse is working or needs you, even from another window.
+- **Chats from the Muse CLI** show up in History, with their transcripts.
 - **Shortcuts:** Cmd+Alt+M (Ctrl+Alt+M) opens the chat; Cmd+Alt+L (Ctrl+Alt+L) or the right-click menu adds selected code.
 
 ![Review and undo every change, @-mention files](media/screenshots/review.png)
@@ -29,7 +33,7 @@ A full-featured side panel for the Muse Code agent: chat, approvals, @-mentions,
 
 The Muse Code CLI, signed in. If it's missing or you're signed out, the panel shows a setup card with buttons to install it (Meta's installer, run in a terminal you can see), sign in with `muse login`, or save an API key.
 
-The panel looks for `muse` on PATH and in `~/.local/bin`, where the installer puts it. If it's somewhere else, use **Choose the muse file…** or set **muse.path**.
+The panel looks for `muse` on PATH and in `~/.local/bin`, where the installer puts it. On Windows it also finds `muse.exe` / `muse.cmd`. With Remote SSH, WSL or Codespaces, Muse must be installed on the remote machine. If it's somewhere else, use **Choose the muse file…** or set **muse.path**.
 
 ## Settings
 
@@ -43,6 +47,8 @@ The panel looks for `muse` on PATH and in `~/.local/bin`, where the installer pu
 | `muse.preset` | Agent preset (`--preset`) |
 | `muse.sendEditorContext` | Send the open file and selection with messages (default on) |
 | `muse.trackChanges` | Snapshot git workspaces so changes can be reviewed and undone (default on) |
+| `muse.showStatusBar` | Show Muse's status and usage in the status bar (default on) |
+| `muse.notifyOnFinish` | Notify when Muse finishes while you're elsewhere (default on) |
 | `muse.extraArgs` | Extra arguments for `muse serve` |
 
 ## How it works

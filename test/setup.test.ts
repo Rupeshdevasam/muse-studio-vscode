@@ -97,3 +97,23 @@ test('shellQuote keeps simple paths and quotes the rest', () => {
   assert.equal(shellQuote('/Users/a/.local/bin/muse'), '/Users/a/.local/bin/muse');
   assert.equal(shellQuote("/My Apps/it's/muse"), `'/My Apps/it'\\''s/muse'`);
 });
+
+test('Windows: finds muse.cmd / muse.exe via PATHEXT, and an unknown sign-in state counts as ready', async () => {
+  const home = tmpHome();
+  const bin = path.join(home, 'bin');
+  fs.mkdirSync(bin, { recursive: true });
+  fs.writeFileSync(path.join(bin, 'muse.cmd'), '@echo Muse Code 9.9.9\r\n');
+  const env = { HOME: home, PATH: bin, PATHEXT: '.EXE;.CMD' };
+  assert.equal(resolveMuseBinary('muse', env, 'win32'), path.join(bin, 'muse.cmd'));
+  // Without a known credentials file, Windows doesn't claim "signed out"; the CLI decides.
+  assert.equal(credentialsPresent(env, 'win32'), undefined);
+  assert.equal(credentialsPresent(env, 'darwin'), false);
+  assert.equal(credentialsPresent({ ...env, META_API_KEY: 'k' }, 'win32'), true);
+});
+
+test('needsShell only for .cmd/.bat on Windows', async () => {
+  const { needsShell } = await import('../src/setup');
+  assert.equal(needsShell('C:\\muse\\muse.cmd', 'win32'), true);
+  assert.equal(needsShell('C:\\muse\\muse.exe', 'win32'), false);
+  assert.equal(needsShell('/usr/local/bin/muse.cmd', 'darwin'), false);
+});

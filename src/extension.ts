@@ -7,7 +7,14 @@ import { GitHeadContentProvider, HEAD_SCHEME, SNAP_SCHEME, SnapshotContentProvid
 export function activate(context: vscode.ExtensionContext): void {
   const log = vscode.window.createOutputChannel('Muse');
   const version = String(context.extension.packageJSON.version ?? '0.0.0');
-  const provider = new ChatViewProvider(context.extensionUri, new SessionStore(context.workspaceState), context.workspaceState, log, version);
+  const provider = new ChatViewProvider(
+    context.extensionUri,
+    new SessionStore(context.workspaceState),
+    context.workspaceState,
+    context.globalState,
+    log,
+    version,
+  );
 
   let selectionTimer: NodeJS.Timeout | undefined;
   const fileWatcher = vscode.workspace.createFileSystemWatcher('**/*', false, true, false);
@@ -28,6 +35,7 @@ export function activate(context: vscode.ExtensionContext): void {
     fileWatcher,
     fileWatcher.onDidCreate(() => provider.invalidateFileIndex()),
     fileWatcher.onDidDelete(() => provider.invalidateFileIndex()),
+    vscode.commands.registerCommand('muse.openInEditor', () => provider.openInEditor()),
     vscode.commands.registerCommand('muse.focus', () => vscode.commands.executeCommand(`${ChatViewProvider.viewId}.focus`)),
     vscode.window.onDidCloseTerminal((t) => provider.onTerminalClosed(t)),
     vscode.window.onDidChangeWindowState((w) => w.focused && provider.refreshSetupIfNeeded()),

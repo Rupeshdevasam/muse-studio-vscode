@@ -109,3 +109,20 @@ test('works in a repository with no commits yet', async () => {
   const changes = await diffSnapshots(dir, before, await snapshot(dir));
   assert.deepEqual(changes.map((c) => [c.path, c.status]), [['first.txt', 'added']]);
 });
+
+test('snapshotTooBig flags many or large untracked files and ignores tracked or ignored ones', async () => {
+  const { snapshotTooBig } = await import('../src/changes');
+  const dir = makeRepo();
+  const limits = { maxUntrackedFiles: 3, maxUntrackedBytes: 1000, maxFileBytes: 600 };
+  assert.equal(await snapshotTooBig(dir, limits), undefined);
+  fs.writeFileSync(path.join(dir, 'big.bin'), Buffer.alloc(700));
+  assert.match((await snapshotTooBig(dir, limits)) ?? '', /big\.bin is 0 MB and isn't ignored/);
+  fs.rmSync(path.join(dir, 'big.bin'));
+  for (const n of ['a', 'b', 'c', 'd']) fs.writeFileSync(path.join(dir, n + '.txt'), 'x');
+  assert.match((await snapshotTooBig(dir, limits)) ?? '', /4 untracked files \(limit 3\)/);
+  // Ignored files don't count.
+  for (const n of ['a', 'b', 'c', 'd']) fs.rmSync(path.join(dir, n + '.txt'));
+  fs.mkdirSync(path.join(dir, 'ignored'));
+  fs.writeFileSync(path.join(dir, 'ignored', 'huge.log'), Buffer.alloc(5000));
+  assert.equal(await snapshotTooBig(dir, limits), undefined);
+});

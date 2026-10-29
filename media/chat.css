@@ -563,4 +563,23 @@ textarea.feedback, .question input.other {
   .pill:has(#effort) { display: none; }
 }
 
+
+/* Chat opened in an editor tab: editor background and a readable centered column. */
+body[data-host='editor'] { background: var(--vscode-editor-background); }
+body[data-host='editor'] #messages,
+body[data-host='editor'] #composer,
+body[data-host='editor'] #todos,
+body[data-host='editor'] #setup { width: 100%; max-width: 860px; margin-left: auto; margin-right: auto; }
+body[data-host='editor'] #messages { padding-top: 24px; }
+body[data-host='editor'] #todos { border-top: none; }
+body[data-host='editor'] .input-box { background: var(--vscode-input-background); }
+
+.remote-note {
+  margin: 6px 0 !important;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border-left: 3px solid var(--vscode-focusBorder);
+  background: var(--code-bg);
+}
+
 [hidden] { display: none !important; }

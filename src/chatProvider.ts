@@ -4,14 +4,14 @@ import { spawn } from 'node:child_process';
 import { homedir } from 'node:os';
 import { MuseHost, type ModelEntry, type PermissionProfile, type ReasoningEffort, type UserInputAnswer } from './msp/host';
 import { RpcError, uuidv7, type RpcExit } from './msp/rpc';
-import { ViewReducer, type UiEvent } from './view';
+import { TESTED_MUSE_VERSION, TESTED_SCHEMA_FINGERPRINTS, ViewReducer, historyToEvents, type UiEvent } from './view';
 import { SessionStore, appendEvent, type ChatSession } from './sessions';
 import * as path from 'node:path';
 import { openDiff, openFile, openSnapshotDiff } from './diff';
-import { changedSince, diffSnapshots, repoRoot, restore, snapshot } from './changes';
+import { changedSince, diffSnapshots, repoRoot, restore, snapshot, snapshotTooBig } from './changes';
 import { buildContext, parseMentions, searchPaths, type EditorContext } from './context';
 import type { TurnInputPart } from './msp/host';
-import { INSTALL_COMMAND, checkSetup, looksLikeAuthError, type SetupStatus } from './setup';
+import { INSTALL_COMMAND, INSTALL_PAGE, checkSetup, looksLikeAuthError, needsShell, type SetupStatus } from './setup';
 
 type FromWebview =
   | { type: 'ready' }
@@ -19,6 +19,7 @@ type FromWebview =
   | { type: 'searchFiles'; query: string; requestId: number }
   | { type: 'changeDiff'; id: string; path: string }
   | { type: 'undoChanges'; id: string; paths?: string[] }
+  | { type: 'slash'; name: string }
   | { type: 'stop' }
   | { type: 'newChat' }
   | { type: 'history' }
@@ -66,12 +67,24 @@ interface Settings {
   extraArgs: string[];
   sendEditorContext: boolean;
   trackChanges: boolean;
+  showStatusBar: boolean;
+  notifyOnFinish: boolean;
 }
 
 export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   static readonly viewId = 'muse.chat';
 
   private view?: vscode.WebviewView;
+  /** The chat opened in an editor tab, mirroring the sidebar. */
+  private panel?: vscode.WebviewPanel;
+  private webviews = new Set<vscode.Webview>();
+  private statusItem: vscode.StatusBarItem;
+  /** Approvals and questions waiting on the user. */
+  private waitingOnUser = new Set<string>();
+  private usage: { windowPct?: number; weeklyPct?: number } = {};
+  private lastReply = '';
+  /** Notices shown once per chat (e.g. why Undo is unavailable). */
+  private shownNotices = new Set<string>();
   private session: ChatSession = newSession();
   private reducer = new ViewReducer();
   private pendingInsert?: string;
@@ -108,25 +121,67 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private readonly extensionUri: vscode.Uri,
     private readonly store: SessionStore,
     private readonly state: vscode.Memento,
+    private readonly globalState: vscode.Memento,
     private readonly log: vscode.OutputChannel,
     private readonly version: string,
   ) {
     const s = readSettings();
     this.profile = state.get<string>('muse.profile') ?? s.permissionProfile;
     this.effort = state.get<string>('muse.effort') ?? s.reasoningEffort;
+    this.statusItem = vscode.window.createStatusBarItem('muse.status', vscode.StatusBarAlignment.Right, 100);
+    this.statusItem.name = 'Muse Studio';
+    this.statusItem.command = 'muse.focus';
+    this.updateStatusBar();
   }
 
   resolveWebviewView(view: vscode.WebviewView): void {
     this.view = view;
-    view.webview.options = {
+    this.attachWebview(view.webview, 'sidebar');
+    view.onDidDispose(() => {
+      this.webviews.delete(view.webview);
+      this.view = undefined;
+    });
+  }
+
+  /** Opens the chat in a full-width editor tab. It mirrors the sidebar: same chat, same state. */
+  openInEditor(): void {
+    if (this.panel) {
+      this.panel.reveal();
+      return;
+    }
+    const panel = vscode.window.createWebviewPanel('muse.chatEditor', 'Muse Studio', vscode.ViewColumn.Active, {
+      enableScripts: true,
+      retainContextWhenHidden: true,
+      localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, 'dist'), vscode.Uri.joinPath(this.extensionUri, 'media')],
+    });
+    panel.iconPath = vscode.Uri.joinPath(this.extensionUri, 'media', 'icon.png');
+    this.panel = panel;
+    this.attachWebview(panel.webview, 'editor');
+    panel.onDidDispose(() => {
+      this.webviews.delete(panel.webview);
+      this.panel = undefined;
+    });
+  }
+
+  private attachWebview(webview: vscode.Webview, where: 'sidebar' | 'editor'): void {
+    webview.options = {
       enableScripts: true,
       localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, 'dist'), vscode.Uri.joinPath(this.extensionUri, 'media')],
     };
-    view.webview.html = this.html(view.webview);
-    view.webview.onDidReceiveMessage((msg: FromWebview) =>
+    webview.html = this.html(webview, where);
+    webview.onDidReceiveMessage((msg: FromWebview) =>
       this.onMessage(msg).catch((err) => this.emit({ type: 'error', message: errorText(err) })),
     );
-    view.onDidDispose(() => (this.view = undefined));
+    this.webviews.add(webview);
+  }
+
+  private isVisible(): boolean {
+    return !!(this.view?.visible || this.panel?.visible);
+  }
+
+  private reveal(): void {
+    if (this.panel) this.panel.reveal();
+    else void vscode.commands.executeCommand(`${ChatViewProvider.viewId}.focus`);
   }
 
   // ---------- commands ----------
@@ -140,20 +195,35 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
   }
 
   async showHistory(): Promise<void> {
-    const chats = this.store.list();
-    if (!chats.length) {
-      vscode.window.showInformationMessage('No Muse chats yet in this workspace.');
-      return;
-    }
+    type Pick = vscode.QuickPickItem & { id?: string; museSessionId?: string; title?: string };
     const deleteButton = { iconPath: new vscode.ThemeIcon('trash'), tooltip: 'Delete chat' };
-    const qp = vscode.window.createQuickPick<vscode.QuickPickItem & { id: string }>();
-    const toItems = (list: ChatSession[]) =>
-      list.map((s) => ({ id: s.id, label: s.title, description: new Date(s.updatedAt).toLocaleString(), buttons: [deleteButton] }));
-    qp.items = toItems(chats);
+    const qp = vscode.window.createQuickPick<Pick>();
     qp.placeholder = 'Resume a Muse chat';
+    qp.matchOnDescription = true;
+    let fromMuse: Pick[] = [];
+    const build = () => {
+      const chats = this.store.list();
+      const known = new Set(chats.map((c) => c.museSessionId).filter(Boolean));
+      const local: Pick[] = chats.map((s) => ({ id: s.id, label: s.title, description: new Date(s.updatedAt).toLocaleString(), buttons: [deleteButton] }));
+      const cli = fromMuse.filter((p) => !known.has(p.museSessionId));
+      qp.items = [
+        ...local,
+        ...(cli.length ? [{ label: 'Started outside this panel', kind: vscode.QuickPickItemKind.Separator } as Pick, ...cli] : []),
+      ];
+    };
+    build();
+    qp.busy = true;
+    qp.show();
+    // Chats started in the Muse CLI (or another client) for this folder.
+    void this.museSessionsForWorkspace().then((list) => {
+      fromMuse = list;
+      qp.busy = false;
+      build();
+      if (!qp.items.length) qp.placeholder = 'No Muse chats yet in this workspace';
+    });
     qp.onDidTriggerItemButton(async (e) => {
-      await this.store.remove(e.item.id);
-      qp.items = toItems(this.store.list());
+      if (e.item.id) await this.store.remove(e.item.id);
+      build();
     });
     qp.onDidAccept(() => {
       const picked = qp.selectedItems[0];
@@ -163,11 +233,59 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         vscode.window.showInformationMessage('Muse is still working. Stop it first, or wait for it to finish.');
         return;
       }
-      const s = this.store.get(picked.id);
-      if (s) this.switchTo(s);
+      if (picked.id) {
+        const s = this.store.get(picked.id);
+        if (s) this.switchTo(s);
+      } else if (picked.museSessionId) {
+        void this.openMuseSession(picked.museSessionId, picked.title ?? 'Chat');
+      }
     });
     qp.onDidHide(() => qp.dispose());
-    qp.show();
+  }
+
+  private async museSessionsForWorkspace(): Promise<(vscode.QuickPickItem & { museSessionId: string; title: string })[]> {
+    const cwd = this.session.cwd ?? workspaceRoot();
+    const status = this.setup;
+    if (!cwd || !status || status.state !== 'ready') return [];
+    try {
+      const host = await this.ensureHost(status.bin, cwd);
+      const sessions = await host.listSessions(cwd);
+      return sessions
+        .filter((s) => (s.kind ?? 'root') === 'root' && (s.generatedName || s.firstUserPrompt))
+        .map((s) => {
+          const title = (s.generatedName || s.firstUserPrompt || 'Chat').split('\n')[0].slice(0, 80);
+          return {
+            museSessionId: s.sessionId,
+            title,
+            label: `$(terminal) ${title}`,
+            description: s.updatedAt ? new Date(s.updatedAt).toLocaleString() : '',
+            detail: 'From Muse (CLI or another app)',
+          };
+        });
+    } catch (err) {
+      this.log.appendLine(`Couldn't list Muse sessions: ${errorText(err)}`);
+      return [];
+    }
+  }
+
+  /** Opens a chat that exists in Muse but not in this panel, showing its history. */
+  private async openMuseSession(museSessionId: string, title: string): Promise<void> {
+    const cwd = this.session.cwd ?? workspaceRoot();
+    const status = this.setup;
+    if (!cwd || !status || status.state !== 'ready') return;
+    const chat: ChatSession = { id: randomUUID(), museSessionId, title, cwd, updatedAt: Date.now(), events: [] };
+    this.switchTo(chat);
+    try {
+      const host = await this.ensureHost(status.bin, cwd);
+      const info = await host.resumeSession(museSessionId, true);
+      this.loaded.add(museSessionId);
+      for (const ev of historyToEvents(info.historyItems ?? [])) appendEvent(chat.events, ev);
+      this.applySessionInfo(info);
+      this.resetWebview();
+      await this.store.save(chat);
+    } catch (err) {
+      this.emit({ type: 'error', message: `Couldn't open that chat: ${errorText(err)}` });
+    }
   }
 
   async stop(): Promise<void> {
@@ -182,18 +300,22 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 
   /** Puts text into the input box, e.g. an editor selection. */
   async insert(text: string): Promise<void> {
-    await vscode.commands.executeCommand(`${ChatViewProvider.viewId}.focus`);
-    if (this.view) this.post({ type: 'insert', text });
+    if (this.panel) this.panel.reveal();
+    else await vscode.commands.executeCommand(`${ChatViewProvider.viewId}.focus`);
+    if (this.webviews.size) this.post({ type: 'insert', text });
     else this.pendingInsert = text;
   }
 
   /** Settings that change how `muse serve` starts take effect on the next message. */
   onSettingsChanged(): void {
     if (!this.busy && this.hostKey && this.hostKey !== hostKeyFor(readSettings(), this.setupBin() ?? '')) this.stopHost();
+    this.updateStatusBar();
     void this.refreshSetup();
   }
 
   dispose(): void {
+    this.statusItem.dispose();
+    this.panel?.dispose();
     this.stopSetupPoll();
     this.stopHost();
   }
@@ -266,12 +388,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         await this.refreshSetup();
         break;
       case 'install':
-        this.openSetupTerminal('Install Muse Code', `set -o pipefail; ${INSTALL_COMMAND}`);
+        if (process.platform === 'win32') {
+          // The installer is a bash script; on Windows, send people to Meta's page instead.
+          await vscode.env.openExternal(vscode.Uri.parse(INSTALL_PAGE));
+        } else {
+          this.openSetupTerminal('Install Muse Code', `set -o pipefail; ${INSTALL_COMMAND}`);
+        }
         break;
       case 'signIn':
         if (this.setup && this.setup.state !== 'missing') {
+          if (process.platform === 'win32') this.openLoginTerminalWindows(this.setup.bin);
           // The binary path is passed as $0 so it never needs shell quoting.
-          this.openSetupTerminal('Muse Login', '"$0" login', [this.setup.bin]);
+          else this.openSetupTerminal('Muse Login', '"$0" login', [this.setup.bin]);
         }
         break;
       case 'apiKey':
@@ -279,6 +407,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         break;
       case 'choosePath':
         await this.choosePath();
+        break;
+      case 'slash':
+        await this.runSlash(msg.name);
         break;
       case 'openSettings':
         await vscode.commands.executeCommand('workbench.action.openSettings', 'muse.');
@@ -355,6 +486,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     try {
       const root = await repoRoot(cwd);
       if (!root) return;
+      const tooBig = await snapshotTooBig(root);
+      if (tooBig) {
+        this.noticeOnce('snapshot-too-big', `Review and undo are off for this folder: ${tooBig}.`);
+        return;
+      }
       this.run = { root, before: await snapshot(root) };
     } catch (err) {
       this.log.appendLine(`Change tracking unavailable: ${errorText(err)}`);
@@ -497,6 +633,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
       this.log.appendLine(`[${new Date().toISOString()}] starting ${bin} serve in ${cwd}`);
     }
     await this.host.ensureStarted();
+    this.checkMuseVersion(this.host);
     return this.host;
   }
 
@@ -620,7 +757,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             continue;
           }
           void this.store.save(this.session);
+          if (!ev.error && ev.terminal === 'completed') this.notifyFinished();
         }
+      }
+      if (ev.type === 'item' && ev.item.kind === 'agentMessage' && ev.item.text) this.lastReply = ev.item.text;
+      if (ev.type === 'usage') {
+        this.usage = { windowPct: ev.windowPct, weeklyPct: ev.weeklyPct };
+        this.updateStatusBar();
       }
       if (ev.type === 'session') {
         if (ev.modelId) this.modelId = ev.modelId;
@@ -632,12 +775,136 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
   }
 
   private onServerRequest(method: string, params: any): void {
-    for (const ev of this.reducer.serverRequest(method, params)) this.emit(ev);
-    if (method === 'approval/request' && !this.view?.visible) {
-      void vscode.window
-        .showInformationMessage('Muse is waiting for your approval.', 'Show')
-        .then((pick) => pick && vscode.commands.executeCommand(`${ChatViewProvider.viewId}.focus`));
+    for (const ev of this.reducer.serverRequest(method, params)) {
+      if (ev.type === 'approval') this.waitingOnUser.add(ev.approval.approvalId);
+      if (ev.type === 'question') this.waitingOnUser.add(ev.question.userInputId);
+      this.emit(ev);
     }
+    this.updateStatusBar();
+    if (!this.isVisible() || !vscode.window.state.focused) {
+      const what = method === 'approval/request' ? 'your approval' : 'an answer from you';
+      void vscode.window.showInformationMessage(`Muse is waiting for ${what}.`, 'Show').then((pick) => pick && this.reveal());
+    }
+  }
+
+  private notifyFinished(): void {
+    if (!readSettings().notifyOnFinish) return;
+    if (this.isVisible() && vscode.window.state.focused) return;
+    const summary = this.lastReply.replace(/[#*`>_\[\]]/g, '').trim().split('\n').find((l) => l.trim()) ?? '';
+    const text = summary.length > 120 ? summary.slice(0, 119) + '…' : summary;
+    void vscode.window.showInformationMessage(`Muse finished${text ? ': ' + text : '.'}`, 'Show').then((pick) => pick && this.reveal());
+  }
+
+  // ---------- slash commands ----------
+
+  private async runSlash(name: string): Promise<void> {
+    switch (name) {
+      case 'new':
+      case 'clear':
+        return this.newChat();
+      case 'history':
+        return this.showHistory();
+      case 'stop':
+        return this.stop();
+      case 'compact':
+        return this.compact();
+      case 'model': {
+        if (!this.models.length) await this.loadModels();
+        const pick = await vscode.window.showQuickPick(
+          this.models.map((m) => ({
+            label: m.displayLabel || m.modelId,
+            description: m.modelId === this.modelId ? 'current' : /contributor/i.test(m.modelId) ? 'contributor: Meta may train on your sessions' : '',
+            id: m.modelId,
+          })),
+          { placeHolder: 'Choose a model' },
+        );
+        if (pick) await this.setModel(pick.id);
+        return;
+      }
+      case 'effort': {
+        const pick = await vscode.window.showQuickPick(
+          [{ label: 'Default', id: '' }, ...EFFORTS.map((e) => ({ label: e[0].toUpperCase() + e.slice(1), id: e as string }))].map((p) => ({
+            ...p,
+            description: p.id === this.effort ? 'current' : '',
+          })),
+          { placeHolder: 'Reasoning effort for your next messages' },
+        );
+        if (pick) {
+          this.effort = pick.id;
+          await this.state.update('muse.effort', pick.id);
+          this.postControls();
+        }
+        return;
+      }
+      case 'permissions': {
+        const list = this.profiles.length ? this.profiles : PROFILES.map((id) => ({ profileId: id, label: profileLabel(id), description: '' }));
+        const pick = await vscode.window.showQuickPick(
+          list.map((p) => ({ label: p.label, detail: p.description, description: p.profileId === this.profile ? 'current' : '', id: p.profileId })),
+          { placeHolder: 'What Muse may do without asking' },
+        );
+        if (pick) await this.setProfile(pick.id);
+        return;
+      }
+    }
+  }
+
+  private async compact(): Promise<void> {
+    const id = this.session.museSessionId;
+    if (!id || !this.host?.running || !this.loaded.has(id)) {
+      this.emit({ type: 'notice', message: 'Nothing to compact yet. Send a message first.' });
+      return;
+    }
+    try {
+      const r = await this.host.compact(id);
+      if (r.status === 'noop') this.emit({ type: 'notice', message: `Nothing to compact${r.reason ? ` (${r.reason.replace(/_/g, ' ')})` : ''}.` });
+      else this.emit({ type: 'notice', message: 'Compacting earlier messages to free up context…' });
+    } catch (err) {
+      const msg = errorText(err);
+      this.emit({
+        type: 'notice',
+        message: /compaction_unavailable/.test(msg) ? "Muse can't compact this chat right now." : `Couldn't compact: ${msg}`,
+      });
+    }
+  }
+
+  // ---------- status bar and one-time notices ----------
+
+  updateStatusBar(): void {
+    const item = this.statusItem;
+    if (!readSettings().showStatusBar) {
+      item.hide();
+      return;
+    }
+    const waiting = this.waitingOnUser.size > 0;
+    item.text = waiting ? '$(bell-dot) Muse needs you' : this.busy ? '$(loading~spin) Muse' : '$(sparkle) Muse';
+    item.backgroundColor = waiting ? new vscode.ThemeColor('statusBarItem.warningBackground') : undefined;
+    const lines = [waiting ? '**Muse is waiting for you.** Click to open the chat.' : this.busy ? '**Muse is working.**' : '**Muse Studio**: click to open the chat.'];
+    if (typeof this.usage.windowPct === 'number') lines.push(`5-hour allowance used: ${this.usage.windowPct}%`);
+    if (typeof this.usage.weeklyPct === 'number') lines.push(`Weekly allowance used: ${this.usage.weeklyPct}%`);
+    item.tooltip = new vscode.MarkdownString(lines.join('\n\n'));
+    item.show();
+  }
+
+  private noticeOnce(key: string, message: string): void {
+    if (this.shownNotices.has(key)) return;
+    this.shownNotices.add(key);
+    this.emit({ type: 'notice', message });
+  }
+
+  /** Warns once per Muse build when its protocol differs from the one this version was tested with. */
+  private checkMuseVersion(host: MuseHost): void {
+    const init = host.initializeResult;
+    const fp: string | undefined = init?.schema?.fingerprint;
+    const version: string = init?.serverInfo?.version ?? '?';
+    if (!fp || TESTED_SCHEMA_FINGERPRINTS.has(fp)) return;
+    this.log.appendLine(`Muse ${version} uses protocol ${fp}; this extension was tested with Muse ${TESTED_MUSE_VERSION}.`);
+    const seen = this.globalState.get<string[]>('muse.seenFingerprints', []);
+    if (seen.includes(fp)) return;
+    void this.globalState.update('muse.seenFingerprints', [...seen, fp]);
+    this.emit({
+      type: 'notice',
+      message: `You're on Muse ${version}, which is newer than the version Muse Studio was tested with (${TESTED_MUSE_VERSION}). If something looks off, check for a Muse Studio update.`,
+    });
   }
 
   private onHostExit(host: MuseHost, exit: RpcExit): void {
@@ -685,6 +952,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 
   private switchTo(s: ChatSession): void {
     this.session = s;
+    this.shownNotices.clear();
+    this.waitingOnUser.clear();
+    this.lastReply = '';
+    this.updateStatusBar();
     this.reducer = new ViewReducer(s.museSessionId);
     this.activeTurnId = undefined;
     this.localEchoes.clear();
@@ -707,7 +978,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
           `Setup: ${status.state}` + (status.state === 'missing' ? ` (looked for "${status.configured}")` : ` — ${status.bin}${status.version ? ` (${status.version})` : ''}`),
         );
       }
-      this.post({ type: 'setup', status });
+      this.post({ type: 'setup', status, platform: process.platform, remote: vscode.env.remoteName ?? '' });
       return status;
     })().finally(() => (this.setupCheck = undefined));
     return this.setupCheck;
@@ -765,6 +1036,22 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     }, 3000);
   }
 
+  /** Windows has no /bin/bash; run `muse login` directly. The terminal stays open if it fails. */
+  private openLoginTerminalWindows(bin: string): void {
+    const term = vscode.window.createTerminal({ name: 'Muse Login', shellPath: bin, shellArgs: ['login'] });
+    this.setupTerminals.add(term);
+    term.show();
+    this.stopSetupPoll();
+    const started = Date.now();
+    this.setupPoll = setInterval(async () => {
+      if (Date.now() - started > 15 * 60_000) return this.stopSetupPoll();
+      if ((await this.refreshSetup()).state === 'ready') {
+        this.stopSetupPoll();
+        void this.loadModels();
+      }
+    }, 3000);
+  }
+
   private async saveApiKey(): Promise<void> {
     if (!this.setup || this.setup.state === 'missing') return;
     const bin = this.setup.bin;
@@ -777,7 +1064,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     });
     if (!key) return;
     const result = await new Promise<{ code: number | null; err: string }>((resolve) => {
-      const child = spawn(bin, ['auth', 'set', '--provider', 'meta', '--api-key-stdin'], { stdio: ['pipe', 'pipe', 'pipe'] });
+      const child = spawn(bin, ['auth', 'set', '--provider', 'meta', '--api-key-stdin'], { stdio: ['pipe', 'pipe', 'pipe'], shell: needsShell(bin) });
       let err = '';
       child.stderr.on('data', (d) => (err += d));
       child.stdout.on('data', () => {});
@@ -806,6 +1093,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
   // ---------- webview plumbing ----------
 
   private emit(ev: UiEvent): void {
+    if (ev.type === 'approval-resolved' || ev.type === 'question-settled') {
+      const id = ev.type === 'approval-resolved' ? ev.approvalId : ev.userInputId;
+      if (this.waitingOnUser.delete(id)) this.updateStatusBar();
+    }
     appendEvent(this.session.events, ev);
     this.session.updatedAt = Date.now();
     this.post({ type: 'event', event: ev });
@@ -816,7 +1107,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     this.busy = on;
     vscode.commands.executeCommand('setContext', 'muse.busy', on);
     this.post({ type: 'busy', on });
-    if (!on) this.finishRun();
+    if (!on) {
+      this.waitingOnUser.clear();
+      this.finishRun();
+    }
+    this.updateStatusBar();
   }
 
   private postControls(): void {
@@ -852,10 +1147,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
   }
 
   private post(msg: unknown): void {
-    this.view?.webview.postMessage(msg);
+    for (const w of this.webviews) void w.postMessage(msg);
   }
 
-  private html(webview: vscode.Webview): string {
+  private html(webview: vscode.Webview, where: 'sidebar' | 'editor' = 'sidebar'): string {
     const nonce = randomBytes(16).toString('base64');
     const script = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'dist', 'webview.js'));
     const style = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'chat.css'));
@@ -875,7 +1170,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 <link rel="stylesheet" href="${style}">
 <title>Muse</title>
 </head>
-<body>
+<body data-host="${where}">
 <div id="app">
   <div id="setup" hidden></div>
   <div id="messages" role="log" aria-live="polite"></div>
@@ -930,6 +1225,8 @@ function readSettings(): Settings {
     preset: c.get<string>('preset', ''),
     extraArgs: c.get<string[]>('extraArgs', []),
     sendEditorContext: c.get<boolean>('sendEditorContext', true),
+    showStatusBar: c.get<boolean>('showStatusBar', true),
+    notifyOnFinish: c.get<boolean>('notifyOnFinish', true),
     trackChanges: c.get<boolean>('trackChanges', true),
   };
 }

@@ -58,6 +58,8 @@ export class RpcProcess extends EventEmitter {
     private readonly args: string[],
     private readonly cwd: string,
     private readonly env: NodeJS.ProcessEnv = process.env,
+    /** Run through a shell (needed for `.cmd` launchers on Windows). */
+    private readonly shell = false,
   ) {
     super();
   }
@@ -67,7 +69,7 @@ export class RpcProcess extends EventEmitter {
   }
 
   start(): void {
-    const child = spawn(this.bin, this.args, { cwd: this.cwd, env: this.env, stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn(this.bin, this.args, { cwd: this.cwd, env: this.env, stdio: ['pipe', 'pipe', 'pipe'], shell: this.shell });
     this.child = child;
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', (chunk: string) => {

@@ -2,7 +2,7 @@
   "name": "muse-studio",
   "displayName": "Muse Studio for VS Code",
   "description": "Community-built, not affiliated with or endorsed by Meta. A side panel for the Muse Code agent: Allow/Reject approvals, @-file mentions, images, editor context, review and undo of every change, model and permission pickers.",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "publisher": "rupeshdevasam",
   "author": {
     "name": "Rupesh Devasam"
@@ -103,6 +103,12 @@
         "title": "Settings",
         "category": "Muse",
         "icon": "$(gear)"
+      },
+      {
+        "command": "muse.openInEditor",
+        "title": "Open Chat in Editor Tab",
+        "category": "Muse",
+        "icon": "$(link-external)"
       }
     ],
     "menus": {
@@ -116,6 +122,11 @@
           "command": "muse.history",
           "when": "view == muse.chat",
           "group": "navigation@2"
+        },
+        {
+          "command": "muse.openInEditor",
+          "when": "view == muse.chat",
+          "group": "navigation@3"
         },
         {
           "command": "muse.openSettings",
@@ -224,6 +235,16 @@
           "type": "boolean",
           "default": true,
           "description": "In git repositories, snapshot the folder before Muse works so you can review and undo everything it changed. Snapshots use a temporary index and never touch your staging area, branches or stash."
+        },
+        "muse.showStatusBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show Muse's status (working, needs you, quota) in the status bar."
+        },
+        "muse.notifyOnFinish": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a notification when Muse finishes while the chat isn't visible or VS Code isn't focused."
         }
       }
     },
@@ -262,5 +283,8 @@
     "@vscode/vsce": "3.2.1",
     "esbuild": "0.24.2",
     "typescript": "5.7.2"
-  }
+  },
+  "extensionKind": [
+    "workspace"
+  ]
 }

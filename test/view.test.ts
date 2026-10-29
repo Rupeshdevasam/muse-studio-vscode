@@ -85,3 +85,15 @@ test('a delta that arrives before the final item text is kept', () => {
   assert.equal((stored[0] as any).item.text, 'partial');
   assert.equal((stored[0] as any).item.status, 'cancelled');
 });
+
+test('historyToEvents shows stored chats, using the display form of prompts', async () => {
+  const { historyToEvents } = await import('../src/view');
+  const ev = historyToEvents([
+    { itemId: 'u1', kind: 'userMessage', status: 'completed', revision: 1, text: 'fix it<context>…</context>', displayText: 'fix it', commandId: 'c1' },
+    { itemId: 'r1', kind: 'reminderChild', status: 'completed', revision: 1 },
+    { itemId: 'a1', kind: 'agentMessage', status: 'completed', revision: 2, text: 'Done.' },
+  ]);
+  assert.deepEqual(ev.map((e) => e.type), ['user', 'item']);
+  assert.equal((ev[0] as any).text, 'fix it');
+  assert.equal((ev[1] as any).item.text, 'Done.');
+});

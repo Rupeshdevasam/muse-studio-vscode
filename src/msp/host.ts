@@ -3,6 +3,7 @@
 
 import { EventEmitter } from 'node:events';
 import { RpcProcess, uuidv7, type RpcExit } from './rpc';
+import { needsShell } from '../setup';
 
 export type ApprovalMode = 'allowAll' | 'promptUnmatched' | 'onRequest' | 'denyUnmatched';
 export type ReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra';
@@ -25,6 +26,17 @@ export interface SessionInfo {
   activeTurnId?: string | null;
   approvalMode?: { mode: ApprovalMode } | null;
   workspaceRoot?: string;
+}
+
+export interface StoredSession {
+  sessionId: string;
+  status?: string;
+  updatedAt?: string;
+  createdAt?: string;
+  workspaceRoot?: string;
+  generatedName?: string;
+  firstUserPrompt?: string;
+  kind?: string;
 }
 
 export interface ModelEntry {
@@ -99,7 +111,7 @@ export class MuseHost extends EventEmitter {
 
   private async start(): Promise<void> {
     const o = this.options;
-    const rpc = new RpcProcess(o.bin, buildServeArgs(o), o.cwd, o.env);
+    const rpc = new RpcProcess(o.bin, buildServeArgs(o), o.cwd, o.env, needsShell(o.bin));
     this.rpc = rpc;
     rpc.on('log', (t: string) => this.emit('log', t));
     rpc.on('notification', (method: string, params: any) => this.emit('notification', method, params));
@@ -153,10 +165,27 @@ export class MuseHost extends EventEmitter {
     return r.session;
   }
 
-  /** Loads an earlier session so new turns continue it. Pending approvals are re-sent after this returns. */
-  async resumeSession(sessionId: string): Promise<SessionInfo> {
-    const r = await this.call('session/resume', { commandId: uuidv7(), sessionId, excludeItems: true });
-    return r.session;
+  /**
+   * Loads an earlier session so new turns continue it. Pending approvals are re-sent after this
+   * returns. With `withHistory`, also returns the session's items so a transcript can be shown.
+   */
+  async resumeSession(sessionId: string, withHistory = false): Promise<SessionInfo & { historyItems?: any[] }> {
+    const r = await this.call(
+      'session/resume',
+      withHistory ? { commandId: uuidv7(), sessionId, history: 'inline' } : { commandId: uuidv7(), sessionId, excludeItems: true },
+    );
+    return { ...r.session, historyItems: withHistory ? (r.history?.items ?? []) : undefined };
+  }
+
+  /** Muse's stored sessions for a folder, newest first (includes ones started in the CLI). */
+  async listSessions(workspaceRoot: string, limit = 50): Promise<StoredSession[]> {
+    const r = await this.call('session/list', { workspaceRoot, limit });
+    return r.sessions ?? [];
+  }
+
+  /** Summarizes earlier context to free up room (`/compact`). */
+  compact(sessionId: string): Promise<{ status: string; reason?: string }> {
+    return this.call('session/compact', { commandId: uuidv7(), sessionId });
   }
 
   /** Sends a message. If a turn is already running, it's queued behind it. */

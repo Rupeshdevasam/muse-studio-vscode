@@ -43,7 +43,9 @@ function git(cwd: string, args: string[], env?: NodeJS.ProcessEnv, timeoutMs = 2
 export async function repoRoot(dir: string): Promise<string | undefined> {
   try {
     const r = await git(dir, ['rev-parse', '--show-toplevel']);
-    return r.stdout.toString().trim() || undefined;
+    const top = r.stdout.toString().trim();
+    // git prints forward slashes on Windows; normalize so path comparisons work.
+    return top ? path.resolve(top) : undefined;
   } catch {
     return undefined;
   }
@@ -114,9 +116,10 @@ export async function restore(
   remove: (absPath: string) => Promise<void> = async (p) => fs.rmSync(p, { force: true }),
 ): Promise<string[]> {
   const done: string[] = [];
+  const rootAbs = path.resolve(root);
   for (const rel of paths) {
-    const abs = path.join(root, rel);
-    if (!abs.startsWith(root + path.sep)) continue; // never write outside the repository
+    const abs = path.resolve(rootAbs, rel);
+    if (!abs.startsWith(rootAbs + path.sep)) continue; // never write outside the repository
     const content = await readFromSnapshot(root, before, rel);
     if (content === undefined) {
       if (fs.existsSync(abs)) await remove(abs);
@@ -139,4 +142,43 @@ export async function changedSince(root: string, after: string, paths: string[])
     if ((then === undefined) !== (now === undefined) || (then && now && !then.equals(now))) out.push(rel);
   }
   return out;
+}
+
+export interface SnapshotLimits {
+  /** Untracked files above this many are too slow to hash on every run. */
+  maxUntrackedFiles: number;
+  maxUntrackedBytes: number;
+  maxFileBytes: number;
+}
+
+export const DEFAULT_LIMITS: SnapshotLimits = {
+  maxUntrackedFiles: 20_000,
+  maxUntrackedBytes: 200 * 1024 * 1024,
+  maxFileBytes: 50 * 1024 * 1024,
+};
+
+/**
+ * Whether snapshotting this repository is cheap enough to do on every run. Tracked files are
+ * already in git's object store, so only untracked (non-ignored) files add real cost.
+ * Returns a reason when it's too big, so the caller can tell the user why Undo is unavailable.
+ */
+export async function snapshotTooBig(root: string, limits: SnapshotLimits = DEFAULT_LIMITS): Promise<string | undefined> {
+  const out = (await git(root, ['ls-files', '--others', '--exclude-standard', '-z'], undefined, 20_000)).stdout.toString();
+  const files = out.split('\0').filter(Boolean);
+  if (files.length > limits.maxUntrackedFiles) {
+    return `${files.length.toLocaleString('en-US')} untracked files (limit ${limits.maxUntrackedFiles.toLocaleString('en-US')}); add build or dependency folders to .gitignore`;
+  }
+  let total = 0;
+  for (const rel of files) {
+    let size = 0;
+    try {
+      size = fs.statSync(path.join(root, rel)).size;
+    } catch {
+      continue;
+    }
+    if (size > limits.maxFileBytes) return `${rel} is ${Math.round(size / 1024 / 1024)} MB and isn't ignored by git`;
+    total += size;
+    if (total > limits.maxUntrackedBytes) return `untracked files add up to more than ${Math.round(limits.maxUntrackedBytes / 1024 / 1024)} MB`;
+  }
+  return undefined;
 }

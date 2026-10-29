@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.0
+
+- **Open chat in an editor tab** (⧉ in the panel title): a full-width view of the same chat.
+- **Slash commands:** type `/` for `/new`, `/compact`, `/model`, `/effort`, `/permissions`, `/history` and `/stop`.
+- **Status bar:** shows when Muse is working or needs you, with your 5-hour and weekly usage in the tooltip. Setting: `muse.showStatusBar`.
+- **Notifications** when Muse finishes, or needs your approval, while you're in another window. Setting: `muse.notifyOnFinish`.
+- **Chats from the Muse CLI** for this folder appear in History and can be resumed with their full transcript.
+- **Windows:** finds `muse.exe` / `muse.cmd`, signs in without bash, and links to Meta's install page.
+- **Remote (SSH, WSL, Codespaces):** the extension runs on the remote machine, and the setup card explains that Muse must be installed there.
+- **Large repositories:** review and undo turn off with a clear note when untracked files are too many or too large to snapshot quickly.
+- A one-time note when your Muse version uses a newer protocol than the one Muse Studio was tested with.
+
 ## 0.4.0
 
 - **New look:** one rounded message box with the controls inside it, compact pickers for model, effort and permissions, and a round send button that becomes stop while Muse works.

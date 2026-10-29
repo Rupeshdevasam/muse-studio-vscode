@@ -786,7 +786,7 @@ $mode.addEventListener('change', () => vscode.postMessage({ type: 'setProfile', 
 
 // ---------- setup card ----------
 
-function renderSetup(status) {
+function renderSetup(status, platform, remote) {
   ready = status.state === 'ready';
   $input.disabled = !ready;
   setBusy(busy);
@@ -802,15 +802,24 @@ function renderSetup(status) {
       if (type === 'checkSetup') e.target.textContent = 'Checking…';
       vscode.postMessage({ type });
     });
+  const where = remote ? el('p', 'remote-note small', `You're connected to a remote machine (${remote}). Muse has to be installed and signed in there, not on this computer.`) : null;
   if (status.state === 'missing') {
-    card.append(
-      el('h3', '', 'Install Muse Code'),
-      el('p', '', "This panel needs the Muse Code CLI, and it isn't installed (or VS Code can't find it)."),
-      el('p', 'muted small', "Install runs Meta's installer in a terminal you can watch:"),
-      el('code', 'cmd', 'curl -fsSL https://dev.meta.ai/install.sh | bash'),
-    );
-    actions.append(act('Install Muse Code', 'install', true), act('Choose the muse file…', 'choosePath'), act('Check again', 'checkSetup'));
+    card.append(el('h3', '', 'Install Muse Code'));
+    if (where) card.append(where);
+    card.append(el('p', '', "This panel needs the Muse Code CLI, and it isn't installed (or VS Code can't find it)."));
+    if (platform === 'win32') {
+      card.append(el('p', 'muted small', "Install opens Meta's Muse Code page with the Windows instructions. Come back and click Check again when it's done."));
+      actions.append(act('Open install page', 'install', true));
+    } else {
+      card.append(
+        el('p', 'muted small', "Install runs Meta's installer in a terminal you can watch:"),
+        el('code', 'cmd', 'curl -fsSL https://dev.meta.ai/install.sh | bash'),
+      );
+      actions.append(act('Install Muse Code', 'install', true));
+    }
+    actions.append(act('Choose the muse file…', 'choosePath'), act('Check again', 'checkSetup'));
   } else {
+    if (where) card.append(where);
     card.append(
       el('h3', '', 'Sign in to Muse'),
       el('p', '', `Muse is installed${status.version ? ` (${status.version})` : ''}, but you're not signed in yet.`),
@@ -869,6 +878,8 @@ $form.addEventListener('submit', (e) => {
   e.preventDefault();
   const text = $input.value.trim();
   if ((!text && !pendingImages.length) || !ready) return;
+  const cmd = text.match(/^\/(\w+)$/);
+  if (cmd && SLASH_COMMANDS.some((c) => c.name === cmd[1].toLowerCase()) && !pendingImages.length) return runSlash(cmd[1].toLowerCase());
   vscode.postMessage({ type: 'send', text, images: pendingImages, includeEditor });
   $input.value = '';
   pendingImages = [];
@@ -890,26 +901,59 @@ function mentionQuery() {
   return m ? { query: m[1], start: caret - m[1].length - 1 } : null;
 }
 
+const SLASH_COMMANDS = [
+  { name: 'new', desc: 'Start a new chat' },
+  { name: 'compact', desc: 'Summarize earlier messages to free up context' },
+  { name: 'model', desc: 'Switch model' },
+  { name: 'effort', desc: 'Change reasoning effort' },
+  { name: 'permissions', desc: 'Change what Muse may do without asking' },
+  { name: 'history', desc: 'Open an earlier chat' },
+  { name: 'stop', desc: 'Stop Muse' },
+];
+
 function updateMention() {
+  // "/command" at the very start of the box opens the command list.
+  const caret = $input.selectionStart;
+  const slash = $input.value.slice(0, caret).match(/^\/(\w*)$/);
+  if (slash && caret === $input.selectionEnd) {
+    mention.open = true;
+    mention.mode = 'slash';
+    mention.items = SLASH_COMMANDS.filter((c) => c.name.startsWith(slash[1].toLowerCase()));
+    mention.index = 0;
+    return renderMentions();
+  }
   const q = mentionQuery();
   if (!q) return closeMentions();
   mention.open = true;
+  mention.mode = 'file';
   mention.start = q.start;
   vscode.postMessage({ type: 'searchFiles', query: q.query, requestId: ++mention.requestId });
+}
+
+function runSlash(name) {
+  $input.value = '';
+  autosize();
+  updateSendButton();
+  closeMentions();
+  vscode.postMessage({ type: 'slash', name });
 }
 
 function renderMentions() {
   if (!mention.open) return;
   $mentions.replaceChildren();
   if (!mention.items.length) {
-    $mentions.append(el('div', 'mention-empty muted', 'No matching files'));
+    $mentions.append(el('div', 'mention-empty muted', mention.mode === 'slash' ? 'No matching command' : 'No matching files'));
   }
   mention.items.forEach((p, i) => {
     const row = el('div', 'mention' + (i === mention.index ? ' active' : ''));
     row.setAttribute('role', 'option');
     row.setAttribute('aria-selected', String(i === mention.index));
-    const slash = p.lastIndexOf('/', p.length - 2);
-    row.append(el('span', 'mention-name', p.slice(slash + 1)), el('span', 'mention-dir muted', slash > 0 ? p.slice(0, slash) : ''));
+    if (mention.mode === 'slash') {
+      row.append(el('span', 'mention-name', '/' + p.name), el('span', 'mention-dir muted', p.desc));
+    } else {
+      const slash = p.lastIndexOf('/', p.length - 2);
+      row.append(el('span', 'mention-name', p.slice(slash + 1)), el('span', 'mention-dir muted', slash > 0 ? p.slice(0, slash) : ''));
+    }
     row.addEventListener('mousedown', (e) => {
       e.preventDefault();
       pickMention(p);
@@ -921,6 +965,7 @@ function renderMentions() {
 }
 
 function pickMention(p) {
+  if (mention.mode === 'slash') return runSlash(p.name);
   const caret = $input.selectionStart;
   const before = $input.value.slice(0, mention.start);
   const after = $input.value.slice(caret);
@@ -1109,10 +1154,10 @@ window.addEventListener('message', (e) => {
       renderControls(msg);
       break;
     case 'setup':
-      renderSetup(msg.status);
+      renderSetup(msg.status, msg.platform, msg.remote);
       break;
     case 'fileResults':
-      if (msg.requestId === mention.requestId && mention.open) {
+      if (msg.requestId === mention.requestId && mention.open && mention.mode === 'file') {
         mention.items = msg.paths;
         mention.index = 0;
         renderMentions();
