@@ -4,7 +4,7 @@
 
 A full-featured side panel for the Muse Code agent: chat, approvals, @-mentions, images, and review/undo of every change.
 
-![Muse Studio: chat with an approval card](media/screenshots/approval.png)
+![Muse Studio demo](media/screenshots/demo.gif)
 
 ## Features
 

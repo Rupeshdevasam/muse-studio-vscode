@@ -333,6 +333,10 @@ function renderCard(it) {
 
   const ps = it.patchSummary;
   b.counts.textContent = ps ? [ps.added ? `+${ps.added}` : '', ps.removed ? `−${ps.removed}` : ''].filter(Boolean).join(' ') : '';
+  // A shell command that ran but failed: show its exit code instead of line counts.
+  const badExit = typeof it.exitCode === 'number' && it.exitCode !== 0;
+  if (badExit) b.counts.textContent = `exit ${it.exitCode}`;
+  b.counts.classList.toggle('bad-exit', badExit);
   b.counts.hidden = !b.counts.textContent;
 
   // Open / diff buttons for file edits.
@@ -348,7 +352,7 @@ function renderCard(it) {
   let out = it.output || '';
   if (it.kind === 'subagent' && it.objective) out = it.objective + (out ? '\n\n' + out : '');
   if (it.failureReason) out += (out ? '\n\n' : '') + it.failureReason;
-  if (!out && it.args && it.kind === 'toolCall' && it.status !== 'inProgress') out = prettyArgs(it.args);
+  if (!out && it.args && it.kind === 'toolCall' && it.status !== 'inProgress' && typeof it.exitCode !== 'number') out = prettyArgs(it.args);
   b.output.textContent = out;
   b.output.hidden = !out;
   if (it.status === 'failed') b.det.open = true;

@@ -11,6 +11,8 @@
 - **Remote (SSH, WSL, Codespaces):** the extension runs on the remote machine, and the setup card explains that Muse must be installed there.
 - **Large repositories:** review and undo turn off with a clear note when untracked files are too many or too large to snapshot quickly.
 - A one-time note when your Muse version uses a newer protocol than the one Muse Studio was tested with.
+- Shell command cards show the command's output and a red exit code when it fails, instead of Muse's raw JSON result.
+- README demo GIF.
 
 ## 0.4.0
 

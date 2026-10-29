@@ -23,6 +23,8 @@ export interface ItemView {
   statusLine?: string;
   held?: boolean;
   cutOff?: boolean;
+  /** Shell commands: the process exit code, when Muse reported one. */
+  exitCode?: number;
 }
 
 export interface ChoiceView {
@@ -113,7 +115,8 @@ const MAX_OUTPUT = 20_000;
 
 export function toItemView(it: any): ItemView | undefined {
   if (!it || typeof it.itemId !== 'string' || HIDDEN_KINDS.has(it.kind)) return undefined;
-  const out = typeof it.visibleOutput === 'string' ? it.visibleOutput : undefined;
+  const shell = parseShellResult(it.visibleOutput);
+  const out = shell ? shell.output : typeof it.visibleOutput === 'string' ? it.visibleOutput : undefined;
   return {
     itemId: it.itemId,
     kind: String(it.kind),
@@ -134,9 +137,28 @@ export function toItemView(it: any): ItemView | undefined {
     objective: it.objective,
     role: it.role,
     statusLine: it.statusLine,
+    exitCode: shell?.exitCode,
     held: it.held,
     cutOff: it.cutOff,
   };
+}
+
+/**
+ * Muse's shell tool reports its result as a JSON object (command, exit_code, output, …).
+ * Returns just the parts worth showing, or undefined when the text isn't that shape.
+ */
+export function parseShellResult(text: unknown): { output: string; exitCode?: number } | undefined {
+  if (typeof text !== 'string' || !text.trimStart().startsWith('{')) return undefined;
+  let v: any;
+  try {
+    v = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+  if (!v || typeof v !== 'object' || !('output' in v) || !('exit_code' in v || 'terminal_status' in v)) return undefined;
+  const parts = [typeof v.output === 'string' ? v.output.replace(/\s+$/, '') : ''];
+  if (v.truncated) parts.push('…(output truncated)');
+  return { output: parts.filter(Boolean).join('\n'), exitCode: typeof v.exit_code === 'number' ? v.exit_code : undefined };
 }
 
 function approvalView(p: any): ApprovalView {

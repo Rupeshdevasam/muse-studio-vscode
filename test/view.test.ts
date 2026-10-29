@@ -97,3 +97,14 @@ test('historyToEvents shows stored chats, using the display form of prompts', as
   assert.equal((ev[0] as any).text, 'fix it');
   assert.equal((ev[1] as any).item.text, 'Done.');
 });
+
+test("shell results show just the command's output and exit code, not Muse's JSON", async () => {
+  const { parseShellResult, toItemView } = await import('../src/view');
+  const json = JSON.stringify({ chunk_id: 'exec-2-1', command: 'node -v', description: 'Check node', exit_code: 127, terminal_status: 'failed', output: 'sh: node: command not found\n', truncated: false });
+  assert.deepEqual(parseShellResult(json), { output: 'sh: node: command not found', exitCode: 127 });
+  assert.equal(parseShellResult('wrote 5 bytes to hello.txt'), undefined);
+  assert.equal(parseShellResult('{"not":"a shell result"}'), undefined);
+  const item = toItemView({ itemId: 't', kind: 'toolCall', status: 'completed', revision: 2, tool: 'bash', visibleOutput: json })!;
+  assert.equal(item.output, 'sh: node: command not found');
+  assert.equal(item.exitCode, 127);
+});

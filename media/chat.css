@@ -276,6 +276,7 @@ body.vscode-light .hljs-meta, body.vscode-light .hljs-meta .hljs-keyword { color
   font-family: var(--mono);
   font-size: 0.92em;
 }
+.counts.bad-exit { color: var(--bad); }
 .counts { flex: none; font-family: var(--mono); font-size: 0.88em; color: var(--vscode-gitDecoration-addedResourceForeground, var(--ok)); }
 .status-icon { flex: none; display: inline-flex; color: var(--muted); }
 .status-icon svg { width: 14px; height: 14px; }
