@@ -1,9 +1,9 @@
 {
   "name": "muse-studio",
   "displayName": "Muse Studio for VS Code",
-  "description": "Community-built, not affiliated with or endorsed by Meta. A side panel for the Muse Code agent: Allow/Reject approvals, @-file mentions, images, editor context, review and undo of every change, model and permission pickers.",
+  "description": "Muse Code GUI for VS Code and Cursor: a side panel for Meta's Muse agent with streaming chat, Allow/Reject approvals, @-file mentions, images, editor context, and review/undo of every change. Model and permission pickers included. Community-built, not affiliated with or endorsed by Meta.",
   "version": "0.5.0",
-  "publisher": "rupeshdevasam",
+"publisher": "twincrewlabs",
   "author": {
     "name": "Rupesh Devasam"
   },
@@ -33,8 +33,16 @@
     "muse",
     "muse code",
     "muse spark",
-    "agent",
-    "ai"
+    "muse wonder",
+    "muse cli",
+    "meta muse",
+    "muse code gui",
+    "coding agent",
+    "ai agent",
+    "ai coding assistant",
+    "chat",
+    "cursor",
+    "vscodium"
   ],
   "main": "./dist/extension.js",
   "activationEvents": [],
