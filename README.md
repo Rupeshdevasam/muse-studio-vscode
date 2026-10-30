@@ -3,6 +3,15 @@
 > **Community project, not affiliated with Meta.** This extension is not made, endorsed or supported by Meta. "Muse" and "Muse Code" are Meta's names for their product. This extension only runs the `muse` CLI you have installed.
 
 A full-featured side panel for the Muse Code agent: chat, approvals, @-mentions, images, and review/undo of every change.
+[![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/twincrewlabs.muse-studio?label=VS%20Code%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=twincrewlabs.muse-studio) [![Open VSX](https://img.shields.io/open-vsx/v/twincrewlabs/muse-studio?label=Open%20VSX)](https://open-vsx.org/extension/twincrewlabs/muse-studio)
+
+## Install
+
+- **VS Code:** install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=twincrewlabs.muse-studio)
+- **Cursor, VSCodium, Windsurf and other VS Code forks:** install from [Open VSX](https://open-vsx.org/extension/twincrewlabs/muse-studio)
+- Or search **Muse Studio** in your editor's Extensions view, or run: `ext install twincrewlabs.muse-studio`
+
+Works in VS Code, Cursor, VSCodium and other compatible editors.
 
 ![Muse Studio demo](media/screenshots/demo.gif)
 
